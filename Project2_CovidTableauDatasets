@@ -1,0 +1,110 @@
+
+/***Queries for Project 2 Part Tableau vizualizations***/
+
+
+---1. 
+
+Select 
+	Sum(new_cases) as total_cases,
+	Sum(new_deaths) as total_deaths,
+	Sum(new_deaths)/Sum(new_cases)*100 as DeathPct
+from covid_deaths_fullset
+where continent is not null
+order by 1,2
+
+---2.
+Select 
+	location, 
+	SUM(new_deaths) as TotalDeathCount
+
+From covid_deaths_fullset
+--Where location like '%states%'
+
+Where continent is null 
+	and location not in ('World', 'European Union', 'International','Low income','Lower middle income','Upper middle income','High income')
+Group by 1
+	order by TotalDeathCount desc
+
+
+---3.
+Select 
+	Location, 
+	Population, 
+	MAX(total_cases) as HighestInfectionCount,  
+	Max((cast(total_cases as numeric)/cast(population as numeric)))*100 as PercentPopulationInfected
+	
+From covid_deaths_fullset
+group by 1,2
+order by PercentPopulationInfected desc
+
+
+----4.
+
+Select 
+	Location, 
+	Population,
+	date, 
+	MAX(total_cases) as HighestInfectionCount,  
+	Max((cast(total_cases as numeric)/cast(population as numeric)))*100 as PercentPopulationInfected
+From covid_deaths_fullset
+--Where location like '%states%'
+Group by Location, Population, date
+order by PercentPopulationInfected desc
+
+-- 5.
+
+--Select Location, date, total_cases,total_deaths, (total_deaths/total_cases)*100 as DeathPercentage
+--From covid_deaths_fullset
+----Where location like '%states%'
+--where continent is not null 
+--order by 1,2
+
+-- took the above query and added population
+Select 
+	Location, 
+	date, 
+	population, 
+	total_cases, 
+	total_deaths
+From covid_deaths_fullset
+--Where location like '%states%'
+where continent is not null 
+order by 1,2
+
+
+-- 6. 
+
+
+With PopvsVac as
+(
+Select 
+	dea.continent, 
+	dea.location, 
+	dea.date, 
+	dea.population, 
+	vac.new_vaccinations
+, SUM(vac.new_vaccinations) OVER (Partition by dea.Location Order by dea.location, dea.Date) as RollingPeopleVaccinated
+--, (RollingPeopleVaccinated/population)*100
+From covid_deaths_fullset dea
+Join vaccination vac
+	On dea.location = vac.location
+	and dea.date = vac.date
+where dea.continent is not null 
+--order by 2,3
+)
+Select *, (RollingPeopleVaccinated/Population)*100 as PercentPeopleVaccinated
+From PopvsVac
+
+
+-- 7. 
+
+Select 
+	Location, 
+	Population,
+	date, 
+	MAX(total_cases) as HighestInfectionCount,  
+	Max((total_cases/population))*100 as PercentPopulationInfected
+From covid_deaths_fullset
+--Where location like '%states%'
+Group by 1, 2, 3
+order by PercentPopulationInfected desc
