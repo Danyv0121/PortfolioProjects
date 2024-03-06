@@ -1,0 +1,249 @@
+create database PortfolioProjects;
+
+use PortfolioProjects
+
+---- Create table 
+
+drop table if exists dbo.property
+
+CREATE TABLE property (
+    UniqueID VARCHAR(100),
+    ParcelID VARCHAR(100),
+    LandUse VARCHAR(100),
+    PropertyAddress VARCHAR(255),
+    SaleDate DATE,
+    SalePrice DECIMAL(11,2),
+    LegalReference VARCHAR(255),
+    SoldAsVacant VARCHAR(3),
+    OwnerOwnerName VARCHAR(255),
+    OwnerAddress VARCHAR(255),
+    Acreage DECIMAL,
+    TaxDistrict VARCHAR(100),
+    LandValue DECIMAL,
+    BuildingValue DECIMAL,
+    TotalValue DECIMAL,
+    YearBuilt INT,
+    Bedrooms INT,
+    FullBath INT,
+    HalfBath INT
+);
+
+---Import CSV File into sql server: Note: Since this project was done on a macbook pro Sql Server is not a native application so the flat file had to be uploaded into a docker container in order to perform bulk insert below.
+ 
+BULK INSERT dbo.property
+FROM "/Project #2/Nashville Housing Data.csv"
+WITH (
+    FORMAT='CSV',
+    firstrow=2
+)
+go
+
+Select * 
+from dbo.property
+
+
+/********Data Cleansing & transformation with SQL(T-SQL/SQL Server Edition)*******/
+
+
+--1. split string in Ownername to OwnerLastName, OwnerFirstNames, and create flag columns to assist with analysis breakdown based on client requriements and overall client goal.
+
+
+---write & view sql: Columns being added in this version of the table. 
+with new as (
+SELECT p.*,
+        LEFT(OwnerName, CHARINDEX(',', OwnerName + ',') - 1) AS OwnerLastname,
+        SUBSTRING(OwnerName, CHARINDEX(',', OwnerName + ',') + 1, LEN(OwnerName)) AS OwnerFirstNames,
+        case when OwnerName like '%&%' then 1 else 0 end as MultiOwnership,
+        case when OwnerName like '%trust%' then 1 Else 0 end as TrustOwnership,
+        case when OwnerName like '%LLC%' then 1 else 0 end as CompanyOwnership,
+        CASE WHEN (SELECT SUM(SalePrice) FROM dbo.property WHERE OwnerName = p.OwnerName) > 100000 THEN 1 ELSE 0 END AS TargetClients
+
+
+FROM dbo.property p 
+)
+
+Select * 
+FROM new 
+--where TrustOwnership=1
+
+---The folling code will Modify db table to include the columns as determined by the use case and cleaning columns for final dataset. 
+
+Alter table dbo.property
+add OwnerLastName VARCHAR(100), OwnerFirstNames VARCHAR(255), MultiOwnership INT, TrustOwnership INT, CompanyOwnership INT, TargetClients int
+
+Alter table dbo.property
+drop COLUMN OwnerLastName, OwnerFirstNames,MultiOwnership, TrustOwnership,CompanyOwnership, TargetClients
+
+Select *
+from dbo.property
+
+drop table if EXISTS dbo.property_new
+
+Select p1.*,
+        LEFT(OwnerName, CHARINDEX(',', OwnerName + ',') - 1) AS OwnerLastname,
+        SUBSTRING(OwnerName, CHARINDEX(',', OwnerName + ',') + 1, LEN(OwnerName)) AS OwnerFirstNames,
+        case when OwnerName like '%&%' then 1 else 0 end as MultiOwnership,
+        case when OwnerName like '%trust%' then 1 Else 0 end as TrustOwnership,
+        case when OwnerName like '%LLC%' then 1 else 0 end as CompanyOwnership,
+        CASE WHEN (SELECT SUM(SalePrice) FROM dbo.property WHERE OwnerName = p1.OwnerName) > 100000 THEN 1 ELSE 0 END AS TargetClients 
+into property_new
+from dbo.property p1
+
+--view the new table
+Select * 
+from dbo.property_new
+
+
+
+---2. Fix Property Address where there are null values. 
+
+Select *  
+from dbo.property_new
+Where propertyaddress is null 
+order by parcelid
+
+
+Select 
+    a.parcelid,
+    a.propertyaddress,
+    b.parcelid,
+    b.propertyaddress,
+    isnull(a.propertyaddress,b.propertyaddress) 
+from property_new a
+join property_new b on a.parcelid=b.parcelid
+     and a.uniqueid <> b.uniqueid 
+where a.propertyaddress is null 
+
+
+
+---update the db table with transformation 
+update a
+set propertyaddress = COALESCE(a.propertyaddress,b.propertyaddress)
+from dbo.property_new a
+join dbo.property_new b on a.parcelid=b.parcelid
+     and a.uniqueid <> b.uniqueid 
+where a.propertyaddress is null 
+
+--Expect to see zero results after table is updated. 
+Select * 
+from property_new
+Where propertyaddress is null 
+
+
+
+---3. Breaking out address into individual columns (address, city, state)
+
+Select 
+SUBSTRING(propertyaddress, 1,CHARINDEX(',', propertyaddress)-1) as Address,
+SUBSTRING(propertyaddress, CHARINDEX(',', propertyaddress)+ 1, LEN(propertyaddress)) as City
+from property_new
+
+Alter TABLE property_new
+add PropertySplitAddress NVARCHAR(255), PropertySplitCity NVARCHAR(255)
+
+UPDATE property_new
+set PropertySplitAddress = SUBSTRING(propertyaddress, 1,CHARINDEX(',', propertyaddress)-1) ,PropertySplitCity = SUBSTRING(propertyaddress, CHARINDEX(',', propertyaddress)+ 1, LEN(propertyaddress)) 
+
+--view with new columns 
+Select * 
+from property_new
+
+
+---Modify owneraddress using another string parsing technique.
+
+Select parsename(replace(owneraddress,',','.'),3) as splitOwneraddress,
+parsename(replace(owneraddress,',','.'),2) as splitOwnerCity,
+parsename(replace(owneraddress,',','.'),1) as splitOwnerState 
+from property_new
+
+
+--- Alter table with new columns add then set values per logic above. 
+
+Alter TABLE property_new
+add splitOwneraddress NVARCHAR(255), splitOwnerCity NVARCHAR(255), splitOwnerState NVARCHAR(5)
+
+UPDATE property_new
+set splitOwneraddress = parsename(replace(owneraddress,',','.'),3) , splitOwnerCity = parsename(replace(owneraddress,',','.'),2) , splitOwnerState= parsename(replace(owneraddress,',','.'),1)
+
+--view with new columns 
+Select * 
+from property_new
+
+---4. Change sold as vacant column from YES/NO to 1 and 0.
+
+Select soldasvacant, case when soldasvacant in ('No','N') then 0 else 1 end as soldasvacant_flag
+from property_new
+--where soldasvacant like '%Y%'
+
+Alter TABLE property_new
+add soldasvacant_flag INT
+
+UPDATE property_new
+set soldasvacant_flag= case when soldasvacant in ('No','N') then 0 else 1 end 
+
+--view with new columns 
+Select * 
+from property_new
+
+
+UPDATE property_new
+set soldasvacant = case when soldasvacant in ('No','N') then 'No' else 'Yes' end 
+
+select soldasvacant 
+from property_new
+
+--5. Remove Duplicates  
+
+---Find dups and delete dups
+with base as(
+Select *, row_number() OVER (partition by parcelid, propertyaddress, SalePrice, SaleDate, LegalReference order by uniqueid) as rn
+from property_new
+)
+
+-- Delete  
+-- from base 
+-- Where rn >1 
+
+---The query below confirms that duplicates that been removed.
+Select * 
+from base
+where rn>1
+
+---6. Delete Unused columms (the use case would be more suitable and typical action to perform on views below I will create a view and bring in only columns I see fit for use)
+
+drop view housing_property
+
+Create view housing_property as ( 
+Select [UniqueID]
+      ,[ParcelID]
+      ,[LandUse]
+      ,[SalePrice]
+      ,[LegalReference]
+      ,[SoldAsVacant]
+      ,[OwnerName]
+      ,[Acreage]
+      ,[LandValue]
+      ,[BuildingValue]
+      ,[TotalValue]
+      ,[YearBuilt]
+      ,[Bedrooms]
+      ,[FullBath]
+      ,[HalfBath]
+      ,[OwnerLastname]
+      ,[OwnerFirstNames]
+      ,[MultiOwnership]
+      ,[TrustOwnership]
+      ,[CompanyOwnership]
+      ,[TargetClients]
+      ,[PropertySplitAddress]
+      ,[PropertySplitCity]
+      ,[splitOwneraddress]
+      ,[splitOwnerCity]
+      ,[splitOwnerState]
+      ,[soldasvacant_flag]
+from dbo.property_new 
+)
+
+Select * 
+from housing_property
+
