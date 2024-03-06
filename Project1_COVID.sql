@@ -1,19 +1,4 @@
-/****************************************************************************************************************************************
-Project ID: 1 
-Name: COVID Insights over time
-Purpose: To expose audience to my sql code skill and techniques to answer important business questions and overall project workfow from discovery to visualization.
-
-
-
-****************************************************************************************************************************************/
-/*PROCESS
-Step one: Vist dataset source site to get and clean dataset in excel and import in PGAdmin4.
-Step two: 
-
-
-***/
-
-/*Step 2:Create Base dataset to use throughout discovery*/
+/*Create Base dataset to use throughout discovery*/
 
 Create table public.covid_deaths_fullset as (
 	
@@ -23,12 +8,6 @@ Create table public.covid_deaths_fullset as (
 											)
 											
 /*Discovery 1: Likelyhood of a death if contracted covid virus by location and date */
-
---- TASK: Looking at total case vs total deaths, Refinement: filter by location of interest. Verify data accuracy: Verified values on web source death totals align in USA.  
---- This is the type of insight you can glean from this type of data to support a presentation on COVID DEATHS: 
-	-- In the USA as of the beginning of Feb 2024 a person has less than a 2% change of dying from the COVID virus,  
-	-- significantly less compared to the peak of the pandemic in mid May 2020 in which a person had a 6% chance of dying from the virus. 
-	-- essientially this data shows rough estimates of the likely one would die if they contracted covid
 	
 Select *
 from (
@@ -38,6 +17,7 @@ Select
 	date,
 	CAST(extract(year from date) as int) as year,
 	total_cases,
+	--new_cases,
 	total_deaths,
 	round((total_deaths::numeric/nullif(total_cases,0))*100,3) as deathPct
 	--,c.max_death_pct
@@ -174,16 +154,89 @@ from vaccination
 group by 1,2,3
 order by 1
 
----combine deaths & vaccinations: Total population versus total vaccinated
+---combine deaths & vaccinations: Total population versus vaccinated
+---example rolling count
 Select 
-dea.continent, dea.location, dea.date, dea.population,vax.total_vaccinations
+	dea.continent, 
+	dea.location, 
+	dea.date, 
+	dea.population,
+	vax.new_vaccinations,
+	sum(vax.new_vaccinations) over (partition by dea.location order by dea.location, dea.date) rolling_people_vaccvination,
+	
 from public.covid_deaths_fullset dea
 join public.vaccination vax on trim(dea.location)=trim(vax.location) and dea.date = vax.date
-Where dea.continent is not null and vax.total_vaccinations is not null and dea.location = 'United States'
+Where dea.continent is not null --and dea.location = 'United States'
 order by 2,3
 		
-		
-Select *
-from vaccination
-		
-											
+--USE CTE
+
+With popvsvax as (
+Select 
+	dea.continent, 
+	dea.location, 
+	dea.date, 
+	dea.population,
+	vax.new_vaccinations,
+	sum(vax.new_vaccinations) over (partition by dea.location order by dea.location, dea.date) rolling_people_vaccinated
+	
+from public.covid_deaths_fullset dea
+join public.vaccination vax on trim(dea.location)=trim(vax.location) and dea.date = vax.date
+Where dea.continent is not null and dea.location = 'United States'
+--order by 2,3
+)
+
+
+select *, (rolling_people_vaccinated/population)*100
+from popvsvax
+
+---Other example using Temp table temp_vax_stats
+
+drop table if exists temp_vaccination_stats
+
+CREATE TEMP TABLE temp_vaccination_stats AS
+SELECT 
+	dea.continent, 
+	dea.location, 
+	dea.date, 
+	dea.population,
+	vax.new_vaccinations,
+	SUM(vax.new_vaccinations) OVER (
+		PARTITION BY dea.location 
+		ORDER BY dea.location, dea.date
+	) AS rolling_people_vaccinated
+	
+FROM 
+	public.covid_deaths_fullset dea
+JOIN 
+	public.vaccination vax 
+	ON TRIM(dea.location) = TRIM(vax.location) AND dea.date = vax.date
+WHERE 
+	dea.continent IS NOT NULL --AND dea.location = 'United States'
+ORDER BY 
+	2, 3;
+
+Select * 
+from temp_vaccination_stats
+
+
+---Creating a view to store data for visualization platform
+create view temp_vaccination_stats AS
+SELECT 
+	dea.continent, 
+	dea.location, 
+	dea.date, 
+	dea.population,
+	vax.new_vaccinations,
+	SUM(vax.new_vaccinations) OVER (
+		PARTITION BY dea.location 
+		ORDER BY dea.location, dea.date
+	) AS rolling_people_vaccinated
+	
+FROM 
+	public.covid_deaths_fullset dea
+JOIN 
+	public.vaccination vax 
+	ON TRIM(dea.location) = TRIM(vax.location) AND dea.date = vax.date
+WHERE 
+	dea.continent IS NOT NULL 
