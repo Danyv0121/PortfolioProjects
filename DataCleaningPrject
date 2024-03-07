@@ -1,4 +1,4 @@
-create database PortfolioProjects;
+ create database PortfolioProjects;
 
 use PortfolioProjects
 
@@ -209,7 +209,8 @@ Select *
 from base
 where rn>1
 
----6. Delete Unused columms (the use case would be more suitable and typical action to perform on views below I will create a view and bring in only columns I see fit for use)
+---6. Delete Unused columms (the use case would be more suitable best practice to perform on views. 
+--As best practice we should keep original data from source and munipulate table versions or views. Below I will create a view and bring in only important columns for analysis)
 
 drop view housing_property
 
