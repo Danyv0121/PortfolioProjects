@@ -9,4 +9,6 @@ DASHBOARD LINK: https://public.tableau.com/app/profile/danyelle.farias/viz/COVID
 
 Project 4 - Data Cleaning with SQL. Sample script and techniques used to clense data with SQL (SQL, PGAdmin4- PostGres)
 
-Project 5 - 
+Project 5 - Correlation Analysis from the sample property dataset processed in the first project. The notebook will run through code to determine outcome of correlation of different data attributes to one another. (Python 3.9, Anaconda-Jupyter Notebook, )
+
+Project 6 - 
