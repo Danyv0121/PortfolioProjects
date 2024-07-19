@@ -1,0 +1,257 @@
+##pip install pandas, plotly_express, streamlit 
+
+import pandas as pd 
+import plotly_express as px 
+import streamlit  as st 
+import plotly.graph_objs as go
+
+#Configure web app display
+st.set_page_config(page_title="Sales Dashboard",
+                    page_icon=":bar_chart:",
+                    layout="wide")
+
+#define logo file location for report use
+logo_image = 'fulllogo.png'
+
+# Center logo layout
+with st.container():
+    col1, col2, col3 = st.columns([10,8,10])  # Adjust the ratio as needed for better centering
+    with col2:
+        st.image(logo_image, width=375)  # Adjust the width to fit your logo size
+
+
+#Temp store refreshed code.
+@st.cache_data 
+##@st.cache_resource
+
+#Read data file
+def get_data_from_csv():
+    df = pd.read_csv('/Users/danyfarias/Desktop/Portfolio Projects copy/Project #7/dummy_sales_data_new.csv')
+    df["Date"] = pd.to_datetime(df["Date"])  # Ensure 'date' column is in datetime format
+    df["Year"] = df["Date"].dt.year  # Extract year from 'date' column
+    df["Month"] = df["Date"].dt.month
+    df["Day"] = df["Date"].dt.day
+    df["Hour"] = pd.to_datetime(df["Time"], format="%H:%M").dt.hour
+    df["YearMonth"] = df["Date"].dt.to_period('M')
+    return df
+
+df= get_data_from_csv()
+
+
+#st.dataframe(df) 
+
+# ---- SIDE BAR-----
+st.sidebar.header("Please Filter Here:")
+city= st.sidebar.multiselect(
+    "Select the City:",
+    options=df["City"].unique(),
+    default=df["City"].unique()
+)
+
+Customer_type = st.sidebar.multiselect(
+    "Select the Customer_type:",
+    options=df["Customer_type"].unique(),
+    default=df["Customer_type"].unique()
+)
+
+gender = st.sidebar.multiselect(
+    "Select the Gender:",
+    options=df["Gender"].unique(),
+    default=df["Gender"].unique()
+)
+
+productline = st.sidebar.multiselect(
+    "Select the Product Line:",
+    options=df["Product_line"].unique(),
+    default=df["Product_line"].unique()
+)
+
+selected_years = st.sidebar.multiselect(
+    "Select the Year:", 
+    options=df["Year"].unique(), 
+    default=df["Year"].unique())
+
+df_selection = df.query(
+    "City == @city & Customer_type ==@Customer_type & Gender == @gender & Product_line ==@productline & Year == @selected_years"
+)
+
+#st.dataframe(df_selection)
+
+# ------ MAINPAGE -----
+
+st.title(":bar_chart: Sales Dashboard")
+st.markdown("##")
+
+# Top Level KPIs
+total_sales = int(df_selection["Total"].sum())
+average_rating = round(df_selection["Rating"].mean(),1)
+star_rating = "⭐️" * int(round(average_rating,0))
+aveage_sale_by_transaction = round(df_selection["Total"].mean(),2)
+
+st.markdown("""
+<style>
+.centered {
+    text-align: center;
+}
+</style>
+<div class="centered">
+    <h2>Key Performance Indicators (KPIs)</h2>
+</div>
+""", unsafe_allow_html=True)
+
+#st.markdown("## Key Performance Indicators (KPIs)")
+# Add a horizontal line after the title
+st.markdown("---")
+
+
+left_column, middle_column, right_column = st.columns(3)
+with left_column:
+    st.subheader("Total Sales:")
+    st.subheader(f"US $ {total_sales:,}")
+with middle_column:
+    st.subheader("Average Rating:")
+    st.subheader(f"{average_rating}{star_rating}")
+with right_column:
+    st.subheader("Average Sales Per Transaction")
+    st.subheader(f"US $ {aveage_sale_by_transaction}")
+
+st.markdown("---")
+
+total_quantity = df_selection["Quantity"].sum()
+upt = df_selection.groupby('InvoiceID')["Quantity"].sum().mean()
+total_orders = df_selection["InvoiceID"].nunique() 
+
+kpi_col1, kpi_col2, kpi_col3= st.columns(3)
+with kpi_col1:
+    st.subheader("Total Quantity Sold:")
+    st.subheader(f"{total_quantity}")
+with kpi_col2:
+    st.subheader("Units Per Transaction:")
+    st.subheader(f"{upt:.2f}")
+with kpi_col3:
+    st.subheader("Total Orders:")
+    st.subheader(f"{total_orders}")
+
+st.markdown("---")
+
+#---- Sales by product line [Bar Chart]
+
+Sales_by_Product_line = ( 
+    df_selection.groupby(by=["Product_line"])[["Total"]].sum().sort_values(by="Total")
+)
+fig_product_sales = px.bar(
+    Sales_by_Product_line,
+    x="Total",
+    y=Sales_by_Product_line.index,
+    orientation="h",
+    title="<b>Sales by Product Line</b>",
+    color_discrete_sequence= ["#0083B8"]*len(Sales_by_Product_line),
+    template="plotly_white",
+    hover_data={"Total": ":,.2f"},
+)
+fig_product_sales.update_layout(
+    plot_bgcolor="rgba(0,0,0,0)",
+    xaxis=(dict(showgrid=False))
+)
+
+#st.plotly_chart(fig_product_sales, use_container_width=True)
+
+## -----Sales by hour --------
+
+Sales_by_Hour = df_selection.groupby(by=["Hour"]).sum()[["Total"]]
+fig_hourly_sales = px.bar(
+    Sales_by_Hour,
+    x=Sales_by_Hour.index,
+    y="Total",
+    title="<b>Sales by Hour</b>",
+    color_discrete_sequence= ["#0083B8"]*len(Sales_by_Hour),
+    template="plotly_white",
+    hover_data={"Total": ":,.2f"},
+)
+fig_hourly_sales.update_layout(
+    xaxis=dict(tickmode="linear"),
+    plot_bgcolor="rgba(0,0,0,0)",
+    yaxis=(dict(showgrid=False)),
+)
+#st.plotly_chart(fig_hourly_sales, use_container_width=True)
+
+##Pie Chart for Payment data
+
+# Calculate the sum of sales for each payment method
+payment_method_sales = df_selection.groupby('Payment')['Total'].sum().reset_index()
+# Generate a pie chart
+fig_payment_method = px.pie(
+    payment_method_sales, 
+    values='Total', 
+    names='Payment', 
+    title="<b>Sales by Payment Method</b>", 
+    color_discrete_sequence=px.colors.sequential.RdBu,
+    hover_data={"Total": ":,.2f"},
+    )
+
+# Display the pie chart
+#st.plotly_chart(fig_payment_method, use_container_width=True)
+
+###Add Line chart displaying data over time 
+
+
+left_column,middle_column, right_column = st.columns(3)
+left_column.plotly_chart(fig_hourly_sales, use_container_width=True)
+middle_column.plotly_chart(fig_payment_method, use_container_width=True)
+right_column.plotly_chart(fig_product_sales,use_container_width=True)
+
+st.markdown("---")
+
+# Add visual for daily sales
+# Aggregate sales by Date for daily sales
+daily_sales = df_selection.groupby('Date')['Total'].sum().reset_index()
+
+# Create the column chart for daily sales
+fig_daily_sales = px.bar(daily_sales, x='Date', y='Total', title='Daily Sales',
+                         labels={'Total': 'Total Sales', 'Date': 'Date'},
+                         template="plotly_white")
+
+# Improve layout
+fig_daily_sales.update_layout(xaxis_title='Date',
+                              yaxis_title='Total Sales',
+                              xaxis=dict(tickmode='auto', nticks=20),  # Adjust for readability
+                              plot_bgcolor="rgba(0,0,0,0)")
+
+# Optionally, rotate the date labels for better readability
+fig_daily_sales.update_xaxes(tickangle=45)
+
+# Show the plot in Streamlit
+st.plotly_chart(fig_daily_sales, use_container_width=True)
+
+st.markdown("---")
+
+# Aggregate data by Month:
+# Aggregate sales by YearMonth
+monthly_sales = df_selection.groupby("YearMonth")["Total"].sum().reset_index()
+monthly_sales["YearMonth"] = monthly_sales["YearMonth"].astype(str)  # Convert YearMonth back to string for plotting
+
+# Plotting the line chart
+fig = px.line(monthly_sales, x='YearMonth', y='Total', title='Monthly Sales',
+              labels={'Total': 'Total Sales', 'YearMonth': 'Month'},
+              markers=True) # markers to see individual points
+
+# Improve layout
+fig.update_layout(xaxis_title='Month',
+                  yaxis_title='Total Sales',
+                  xaxis=dict(tickangle=-45),
+                  plot_bgcolor="rgba(0,0,0,0)")
+
+# Show the plot
+st.plotly_chart(fig, use_container_width=True)
+
+
+##Hide Streamlit Style -------
+
+hide_st_style = """
+            <style>
+            #Mainmenu {visibility: hidden;}
+            footer {visibility: hidden;}
+            header {visibility: hidden;}
+            </style>
+            """
+st.markdown(hide_st_style, unsafe_allow_html=True)
